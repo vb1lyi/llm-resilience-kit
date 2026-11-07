@@ -1,0 +1,35 @@
+# Gradle
+.gradle/
+build/
+!gradle/wrapper/gradle-wrapper.jar
+.kotlin/
+
+# IDEs
+.idea/
+*.iml
+.vscode/
+out/
+bin/
+
+# OS
+.DS_Store
+
+# Local secrets / overrides (never commit)
+.env
+*.local.properties
+
+# Local clone of the system under test (Stage 1+)
+.sut/
+
+# Python (spike probes)
+__pycache__/
+*.pyc
+
+# Claude Code (local only, never committed)
+CLAUDE.md
+CLAUDE.local.md
+.claude/
+.mcp.json
+
+# Project docs (local only, never committed)
+docs/
