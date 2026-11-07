@@ -9,6 +9,7 @@ rest-assured = "6.3.0"
 jackson = "2.22.4"
 slf4j = "2.0.20"
 logback = "1.6.6"
+postgresql = "42.7.14"
 
 [libraries]
 junit-bom = { module = "org.junit:junit-bom", version.ref = "junit" }
@@ -24,6 +25,7 @@ testcontainers-postgresql = { module = "org.testcontainers:testcontainers-postgr
 
 mockserver-client = { module = "org.mock-server:mockserver-client-java", version.ref = "mockserver" }
 rest-assured = { module = "io.rest-assured:rest-assured", version.ref = "rest-assured" }
+postgresql-jdbc = { module = "org.postgresql:postgresql", version.ref = "postgresql" }
 
 jackson-bom = { module = "com.fasterxml.jackson:jackson-bom", version.ref = "jackson" }
 jackson-databind = { module = "com.fasterxml.jackson.core:jackson-databind" }

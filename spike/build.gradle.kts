@@ -1,4 +1,4 @@
-// TEMPORARY (Stage 1 spike): throwaway MockServer capability checks. Delete before Stage 2.
+// FROZEN (Stage 1 spike): not included in settings.gradle.kts. To re-run, temporarily add "spike" to include(...).
 
 plugins {
     id("kit.java-conventions")

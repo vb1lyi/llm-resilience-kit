@@ -12,5 +12,5 @@ include(
     "kit-junit5",
     "kit-report",
     "examples:petclinic-ai",
-    "spike", // TEMPORARY - Stage 1 throwaway checks; remove before Stage 2
 )
+// spike/ (Stage 1) is frozen evidence and intentionally not part of the build - see spike/README.md
