@@ -12,17 +12,18 @@ import java.util.Set;
  *
  * <p>The SUT seeds its data idempotently on every start ({@code db/postgres/data.sql}): 10 owners, 13 pets
  * and 4 visits with ids starting at 1. Its chatbot tools only ever <em>insert</em> owners and pets (spike Q5),
- * so deleting every row above the seed ids brings the database back to the seed state.
+ * so deleting every row above the seed ids brings the database back to the seed state. Seed ids are contiguous
+ * (1..n), which is why each {@code SEED_*} constant is both the row count and the highest id of the seed.
  */
 public final class PetClinicDatabase {
 
-    /** Highest seed id in {@code owners}. */
+    /** Seed rows in {@code owners}: ids 1..10. */
     public static final int SEED_OWNERS = 10;
 
-    /** Highest seed id in {@code pets}. */
+    /** Seed rows in {@code pets}: ids 1..13. */
     public static final int SEED_PETS = 13;
 
-    /** Highest seed id in {@code visits}. */
+    /** Seed rows in {@code visits}: ids 1..4. */
     public static final int SEED_VISITS = 4;
 
     private static final Set<String> TABLES = Set.of("owners", "pets", "visits", "vets", "specialties", "types");

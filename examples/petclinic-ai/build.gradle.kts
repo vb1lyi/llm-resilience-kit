@@ -6,6 +6,9 @@
 // src/main holds the test environment (PetClinicAiEnvironment) shared by integrationTest and chaosTest.
 
 import java.io.StringReader
+import java.security.MessageDigest
+import java.time.Duration
+import java.util.HexFormat
 import java.util.Properties
 
 plugins {
@@ -19,7 +22,16 @@ val sut = Properties().apply {
 }
 fun sut(key: String): String = requireNotNull(sut.getProperty(key)) { "sut.properties: missing '$key'" }
 
+// Image tag = <commit, 7 chars>-<hash of the buildpack pins, 8 chars>. Derived, never typed by hand: a changed pin
+// gives a new tag, so build-image.sh cannot mistake an image built from older pins for the current one.
+val sutImage: String = run {
+    val pins = sut("sut.builder") + "\n" + sut("sut.run-image")
+    val pinsHash = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(pins.toByteArray()))
+    "${sut("sut.image-name")}:${sut("sut.commit").take(7)}-${pinsHash.take(8)}"
+}
+
 dependencies {
+    api(project(":kit-core"))
     api(platform(libs.testcontainers.bom))
     api(libs.testcontainers.core)
     api(libs.testcontainers.mockserver)
@@ -37,7 +49,7 @@ val buildSutImage = tasks.register<Exec>("buildSutImage") {
         mapOf(
             "SUT_REPOSITORY" to sut("sut.repository"),
             "SUT_COMMIT" to sut("sut.commit"),
-            "SUT_IMAGE" to sut("sut.image"),
+            "SUT_IMAGE" to sutImage,
             "SUT_BUILDER" to sut("sut.builder"),
             "SUT_RUN_IMAGE" to sut("sut.run-image"),
             "SUT_CHECKOUT_DIR" to rootProject.layout.projectDirectory.dir(".sut/spring-petclinic-ai").asFile.path,
@@ -65,6 +77,13 @@ testing {
             }
         }
 
+        named<JvmTestSuite>("test") {
+            dependencies {
+                implementation(project())
+                implementation(libs.mockserver.netty) // in-JVM MockServer for the scenarios' arm() tests
+            }
+        }
+
         // Both container-backed suites get the environment, its images, and logging.
         listOf("integrationTest", "chaosTest").forEach { name ->
             named<JvmTestSuite>(name) {
@@ -76,11 +95,13 @@ testing {
                 targets.configureEach {
                     testTask.configure {
                         dependsOn(buildSutImage)
-                        systemProperty("sut.image", sut("sut.image"))
+                        systemProperty("sut.image", sutImage)
                         systemProperty("db.image", sut("db.image"))
                         systemProperty("mockserver.image", "mockserver/mockserver:${libs.versions.mockserver.get()}")
                         // The real environment is never re-used between runs: always run against fresh containers.
                         outputs.upToDateWhen { false }
+                        // Backstop against a hung run: the SUT has no LLM read timeout (spike Q7).
+                        timeout = Duration.ofMinutes(30)
                     }
                 }
             }

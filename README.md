@@ -12,7 +12,7 @@ Requirements: Java 21, Docker, and `git` + network access for the first run (the
 ./gradlew build
 ```
 
-- The first run builds the SUT image `llm-resilience/petclinic-ai:<sha>` from the commit pinned in [`examples/petclinic-ai/sut.properties`](examples/petclinic-ai/sut.properties). Later runs re-use it; force a rebuild with `SUT_FORCE_REBUILD=true ./gradlew :examples:petclinic-ai:buildSutImage`.
+- The first run builds the SUT image `llm-resilience/petclinic-ai:<commit>-<pins hash>` from the commit and buildpack images pinned in [`examples/petclinic-ai/sut.properties`](examples/petclinic-ai/sut.properties). Later runs re-use it; force a rebuild with `SUT_FORCE_REBUILD=true ./gradlew :examples:petclinic-ai:buildSutImage`.
 - The container-backed suites start MockServer, Postgres and the SUT once per test JVM (~30 s).
 - Give Docker at least **4 CPUs / 6 GiB**. With 2 GiB, the three containers barely fit.
 

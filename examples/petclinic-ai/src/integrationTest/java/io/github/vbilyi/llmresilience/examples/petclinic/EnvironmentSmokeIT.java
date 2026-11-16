@@ -3,8 +3,9 @@ package io.github.vbilyi.llmresilience.examples.petclinic;
 import static io.restassured.RestAssured.given;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockserver.model.HttpRequest.request;
-import static org.mockserver.model.HttpResponse.response;
 
+import io.github.vbilyi.llmresilience.core.openai.OpenAiRequests;
+import io.github.vbilyi.llmresilience.core.openai.OpenAiResponses;
 import java.sql.Connection;
 import java.sql.Statement;
 import org.junit.jupiter.api.BeforeAll;
@@ -16,12 +17,6 @@ import org.junit.jupiter.api.Test;
  * If this fails, no chaos result is trustworthy.
  */
 class EnvironmentSmokeIT {
-
-    private static final String CHAT_COMPLETIONS = "/v1/chat/completions";
-    private static final String MINIMAL_COMPLETION = """
-            {"id":"chatcmpl-smoke","object":"chat.completion","created":0,"model":"gpt-4o",
-             "choices":[{"index":0,"message":{"role":"assistant","content":"pong"},"finish_reason":"stop"}],
-             "usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}""";
 
     private static PetClinicAiEnvironment env;
 
@@ -46,11 +41,7 @@ class EnvironmentSmokeIT {
      */
     @Test
     void chatMessageReachesTheMockNotARealProvider() {
-        env.mockServer()
-                .when(request().withMethod("POST").withPath(CHAT_COMPLETIONS))
-                .respond(response().withStatusCode(200)
-                        .withHeader("Content-Type", "application/json")
-                        .withBody(MINIMAL_COMPLETION));
+        env.mockServer().when(OpenAiRequests.chatCompletions()).respond(OpenAiResponses.text("pong").toResponse());
 
         given().baseUri(env.baseUrl())
                 .contentType("application/json")
@@ -58,7 +49,7 @@ class EnvironmentSmokeIT {
                 .when().post("/chat")
                 .then().statusCode(200);
 
-        assertThat(env.mockServer().retrieveRecordedRequests(request().withPath(CHAT_COMPLETIONS))).hasSize(1);
+        assertThat(env.mockServer().retrieveRecordedRequests(OpenAiRequests.chatCompletions())).hasSize(1);
     }
 
     @Test

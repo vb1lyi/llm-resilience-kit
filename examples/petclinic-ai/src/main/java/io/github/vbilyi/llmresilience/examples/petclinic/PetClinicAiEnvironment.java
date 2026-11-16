@@ -31,7 +31,8 @@ import org.testcontainers.utility.DockerImageName;
  *
  * <p><b>State between tests.</b> Call {@link #resetState()} before each test: it clears all MockServer expectations
  * and recorded requests and resets the database to its seed. The SUT's chat memory is global and cannot be reset
- * over HTTP (ADR-006) — mock expectations must therefore match on the last message only.
+ * over HTTP (ADR-006), and the SUT may still be working for the previous test — so each test marks its user
+ * message with a {@code RunMarker} and scenarios arm only that run's requests (ADR-007).
  *
  * <p><b>Configuration.</b> Images come from the system properties {@code sut.image}, {@code db.image} and
  * {@code mockserver.image}, which Gradle sets from {@code sut.properties} and the version catalog.
@@ -61,7 +62,11 @@ public final class PetClinicAiEnvironment {
     private static final String MOCKSERVER_MAX_LOG_ENTRIES = "2000";
     private static final long MOCKSERVER_MEMORY_BYTES = 768L * 1024 * 1024;
 
+    /** The real provider's host. Inside the SUT container it resolves to the container itself. */
+    private static final String REAL_PROVIDER_HOST = "api.openai.com";
+
     private static PetClinicAiEnvironment shared;
+    private static RuntimeException startupFailure;
 
     private final Network network;
     private final MockServerContainer mock;
@@ -93,6 +98,9 @@ public final class PetClinicAiEnvironment {
                 .withNetwork(network)
                 .withExposedPorts(SUT_PORT)
                 .withEnv(sutEnvironment())
+                // Hard guarantee of "no calls to real LLM providers": even if the base-URL override were ever lost,
+                // the SUT's default https://api.openai.com would go nowhere.
+                .withExtraHost(REAL_PROVIDER_HOST, "127.0.0.1")
                 .dependsOn(mock, db)
                 .waitingFor(Wait.forHttp("/actuator/health").forStatusCode(200)
                         .withStartupTimeout(Duration.ofMinutes(3)))
@@ -109,14 +117,23 @@ public final class PetClinicAiEnvironment {
     }
 
     /**
-     * Returns the environment for this JVM, starting it on first use.
+     * Returns the environment for this JVM, starting it on first use. A failed start is remembered and rethrown
+     * to every later caller, so one broken environment does not cost a startup timeout per test class.
      *
      * @return the shared, running environment
      */
     public static synchronized PetClinicAiEnvironment shared() {
+        if (startupFailure != null) {
+            throw startupFailure;
+        }
         if (shared == null) {
-            shared = new PetClinicAiEnvironment(
-                    requiredProperty("sut.image"), requiredProperty("db.image"), requiredProperty("mockserver.image"));
+            try {
+                shared = new PetClinicAiEnvironment(requiredProperty("sut.image"), requiredProperty("db.image"),
+                        requiredProperty("mockserver.image"));
+            } catch (RuntimeException e) {
+                startupFailure = e;
+                throw e;
+            }
             Runtime.getRuntime().addShutdownHook(new Thread(shared::stop, "petclinic-env-shutdown"));
         }
         return shared;

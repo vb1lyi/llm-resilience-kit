@@ -24,6 +24,7 @@ testcontainers-mockserver = { module = "org.testcontainers:testcontainers-mockse
 testcontainers-postgresql = { module = "org.testcontainers:testcontainers-postgresql" }
 
 mockserver-client = { module = "org.mock-server:mockserver-client-java", version.ref = "mockserver" }
+mockserver-netty = { module = "org.mock-server:mockserver-netty", version.ref = "mockserver" }
 rest-assured = { module = "io.rest-assured:rest-assured", version.ref = "rest-assured" }
 postgresql-jdbc = { module = "org.postgresql:postgresql", version.ref = "postgresql" }
 
