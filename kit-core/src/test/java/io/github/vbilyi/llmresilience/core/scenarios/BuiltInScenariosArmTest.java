@@ -232,6 +232,18 @@ class BuiltInScenariosArmTest {
         }
     }
 
+    /** The marker is found whether the client sends content as a string or as an array of parts. */
+    @Test
+    void theRunIsRecognizedWhenMessageContentIsAnArrayOfParts() throws Exception {
+        new HappyPath().arm(mock, run);
+        String body = """
+                {"model": "gpt-4o",
+                 "messages": [{"role": "user",
+                               "content": [{"type": "text", "text": "%s"}]}]}""".formatted(run.mark("Hello"));
+
+        assertAnswer(post(OpenAiRequests.CHAT_COMPLETIONS_PATH, body), "array content");
+    }
+
     // ---- helpers ----
 
     private static void assertAnswer(HttpResponse<String> response, String which) throws Exception {

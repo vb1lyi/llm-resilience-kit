@@ -63,7 +63,8 @@ class RateLimitChaosIT {
     }
 
     private static void assertReadableForTheUser(SoftAssertions softly, ChatResult result) {
-        softly.assertThat(result.timedOut()).as("the user got no reply at all").isFalse();
+        softly.assertThat(result.replied()).as("the user got a reply (timed out: %s, error: %s)",
+                result.timedOut(), result.transportError()).isTrue();
         softly.assertThat(result.status()).as("HTTP status the user got (500 = unhandled exception)").isNotEqualTo(500);
         softly.assertThat(result.body()).as("what the user saw").isNotBlank();
         softly.assertThat(looksLikeRawSpringError(result.body()))

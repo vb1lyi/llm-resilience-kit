@@ -1,6 +1,7 @@
 package io.github.vbilyi.llmresilience.core.openai;
 
 import static org.mockserver.model.JsonPathBody.jsonPath;
+import static org.mockserver.model.StringBody.subString;
 
 import org.mockserver.model.HttpRequest;
 
@@ -48,17 +49,20 @@ public final class OpenAiRequests {
     }
 
     /**
-     * A chat completion request in which at least one message contains the given text. Used with a per-run marker
-     * (see {@code RunMarker}): the marker sits in the user's message, which the client re-sends on every turn.
+     * A chat completion request whose body contains the given text anywhere. Used with a per-run marker (see
+     * {@code RunMarker}): the marker sits in the user's message, which the client re-sends on every turn.
      *
-     * @param text letters, digits and dashes only
-     * @return a matcher on {@code $.messages[?(@.content contains '...')]}
+     * <p>A plain substring of the raw body, not a JSONPath: it does not care whether the client sends message
+     * content as a string or as an array of parts.
+     *
+     * @param text letters, digits and dashes only (so it reads the same inside JSON)
+     * @return a matcher on the request body
      */
     public static HttpRequest chatCompletionsContaining(String text) {
         if (!text.matches("[A-Za-z0-9-]+")) {
             throw new IllegalArgumentException("Unexpected marker text: " + text);
         }
-        return chatCompletions().withBody(jsonPath("$.messages[?(@.content contains '" + text + "')]"));
+        return chatCompletions().withBody(subString(text));
     }
 
     /**

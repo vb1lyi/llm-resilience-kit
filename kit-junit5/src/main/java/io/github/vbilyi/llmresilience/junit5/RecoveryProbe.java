@@ -25,11 +25,20 @@ final class RecoveryProbe {
     }
 
     /**
-     * Runs the probe.
+     * Runs the probe. Never throws: a probe that cannot even be run (the mock or the SUT is gone) is reported as
+     * "not recovered", so the scenario's outcome is still recorded.
      *
      * @return empty if the SUT recovered, otherwise what went wrong
      */
     static Optional<String> failure(ChaosEnvironment environment) {
+        try {
+            return probe(environment);
+        } catch (RuntimeException e) {
+            return Optional.of("the probe could not be run: " + e);
+        }
+    }
+
+    private static Optional<String> probe(ChaosEnvironment environment) {
         ChaosScenario happyPath = environment.scenarios().get(HappyPath.ID);
         RunMarker run = RunMarker.random();
         environment.mockServer().reset();
@@ -39,6 +48,9 @@ final class RecoveryProbe {
 
         if (result.timedOut()) {
             return Optional.of("no reply within " + happyPath.timeBudget().toSeconds() + " s");
+        }
+        if (!result.replied()) {
+            return Optional.of("no reply: " + result.transportError());
         }
         for (Expectation expectation : happyPath.expected().expectations()) {
             if (expectation instanceof Expectation.UserSees(String text) && !text.equals(result.body())) {

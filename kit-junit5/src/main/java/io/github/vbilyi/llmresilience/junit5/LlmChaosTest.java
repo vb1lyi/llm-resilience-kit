@@ -41,7 +41,8 @@ public @interface LlmChaosTest {
     Layer[] layers() default {};
 
     /**
-     * Runs the whole catalog, control scenarios included.
+     * Runs the whole catalog, control scenarios included. Cannot be combined with {@link #scenarios()} or
+     * {@link #layers()}.
      *
      * @return {@code true} to run every scenario
      */

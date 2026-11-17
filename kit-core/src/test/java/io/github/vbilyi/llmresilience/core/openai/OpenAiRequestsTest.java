@@ -8,6 +8,7 @@ import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.mockserver.model.HttpRequest;
 import org.mockserver.model.JsonPathBody;
+import org.mockserver.model.StringBody;
 
 /**
  * Request matchers. The last-message expression is evaluated with Jayway JsonPath — the engine MockServer itself
@@ -65,13 +66,14 @@ class OpenAiRequestsTest {
     }
 
     @Test
-    void containingMatchesOnlyRequestsWhoseMessagesCarryTheMarker() {
-        // The marker sits in the user message; the tool follow-up turn still carries it. Messages without content
-        // (assistant tool_calls) must not break the expression.
-        String ofThisRun = TOOL_FOLLOW_UP.replace("list the owners", "list the owners [llmrk-aaaa1111]");
+    void containingMatchesTheMarkerAnywhereInTheBody() {
+        // A plain substring of the raw body; real matching is proven against MockServer in BuiltInScenariosArmTest.
+        HttpRequest matcher = OpenAiRequests.chatCompletionsContaining("llmrk-aaaa1111");
 
-        assertThat(selects(OpenAiRequests.chatCompletionsContaining("llmrk-aaaa1111"), ofThisRun)).isTrue();
-        assertThat(selects(OpenAiRequests.chatCompletionsContaining("llmrk-bbbb2222"), ofThisRun)).isFalse();
+        assertThat(matcher.getPath().getValue()).isEqualTo("/v1/chat/completions");
+        assertThat(matcher.getBody()).isInstanceOf(StringBody.class);
+        assertThat(((StringBody) matcher.getBody()).getValue()).isEqualTo("llmrk-aaaa1111");
+        assertThat(((StringBody) matcher.getBody()).isSubString()).isTrue();
         assertThatThrownBy(() -> OpenAiRequests.chatCompletionsContaining("x') || ('"))
                 .isInstanceOf(IllegalArgumentException.class);
     }

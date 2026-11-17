@@ -71,7 +71,13 @@ public final class PetClinicAiEnvironment implements ChaosEnvironment {
     private static final String DB_PASSWORD = "petclinic";
     private static final int SUT_PORT = 8080;
 
-    /** MockServer must stay bounded: an unbounded tool loop got it OOM-killed in the spike (risk R11). */
+    /**
+     * MockServer must stay bounded: an unbounded tool loop got it OOM-killed in the spike (risk R11).
+     *
+     * <p>LLM calls are counted from this log, which is cleared before every scenario. If a SUT makes so many calls
+     * that old entries are dropped, the count stops growing at a few hundred instead of being exact - still far
+     * above any sensible call budget, so a "too many calls" finding is never lost, only its exact number.
+     */
     private static final String MOCKSERVER_MAX_LOG_ENTRIES = "2000";
     private static final long MOCKSERVER_MEMORY_BYTES = 768L * 1024 * 1024;
 

@@ -62,6 +62,10 @@ public final class LlmChaosExtension implements TestTemplateInvocationContextPro
     /** Ids first, in the order written, then the scenarios of each layer; no scenario twice. */
     static List<ChaosScenario> select(LlmChaosTest test, ScenarioCatalog catalog) {
         if (test.all()) {
+            if (test.scenarios().length > 0 || test.layers().length > 0) {
+                throw new ExtensionConfigurationException(
+                        "@LlmChaosTest: all = true already selects every scenario; remove scenarios/layers or all");
+            }
             return catalog.all();
         }
         Set<ChaosScenario> selected = new LinkedHashSet<>();
@@ -126,9 +130,9 @@ public final class LlmChaosExtension implements TestTemplateInvocationContextPro
         static StartedEnvironment start(Class<? extends ChaosEnvironment> type) {
             try {
                 return new StartedEnvironment(ReflectionSupport.newInstance(type), null);
-            } catch (RuntimeException e) {
+            } catch (Exception | LinkageError e) { // a constructor can throw anything; class loading can fail too
                 return new StartedEnvironment(null, new ExtensionConfigurationException(
-                        "Cannot start the environment " + type.getName() + ": " + e.getMessage(), e));
+                        "Cannot start the environment " + type.getName() + ": " + e, e));
             }
         }
 

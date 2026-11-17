@@ -10,7 +10,9 @@ import io.github.vbilyi.llmresilience.core.sut.ChatDriver;
 import io.github.vbilyi.llmresilience.core.sut.ChatResult;
 import io.github.vbilyi.llmresilience.junit5.LlmChaosSuite;
 import io.github.vbilyi.llmresilience.junit5.LlmChaosTest;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Assumptions;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockserver.client.MockServerClient;
 
@@ -130,6 +132,71 @@ public final class Fixtures {
         @LlmChaosTest(scenarios = "RATE_LIMIT_429")
         void aborts() {
             Assumptions.abort("not today");
+        }
+    }
+
+    @LlmChaosSuite(environment = FakeEnvironment.class)
+    public static class AllCombinedWithIds {
+
+        @LlmChaosTest(all = true, scenarios = "RATE_LIMIT_492")
+        void neverRuns(ChaosScenario scenario) {}
+    }
+
+    /** A lifecycle method of the test class fails, so the test method never runs. */
+    @LlmChaosSuite(environment = FakeEnvironment.class)
+    public static class BeforeEachFails {
+
+        @BeforeEach
+        void prepare() {
+            throw new IllegalStateException("fixture data missing");
+        }
+
+        @LlmChaosTest(scenarios = "RATE_LIMIT_429")
+        void neverRuns(ChatDriver chat) {}
+    }
+
+    /** The environment cannot be reset (see {@link FakeEnvironment#FAIL_RESET}): arming never happens. */
+    @LlmChaosSuite(environment = FakeEnvironment.class)
+    public static class ResetFails {
+
+        @LlmChaosTest(scenarios = "RATE_LIMIT_429")
+        void neverRuns(ChatDriver chat) {}
+    }
+
+    /** The SUT is gone after the scenario: even the probe's chat call throws. */
+    @LlmChaosSuite(environment = DiesAfterFirstMessageEnvironment.class)
+    public static class SutDiesDuringScenario {
+
+        @LlmChaosTest(scenarios = "RATE_LIMIT_429")
+        void passesByItself(ChatDriver chat) {
+            chat.send("Hello");
+        }
+    }
+
+    /** Two classes like this must never be inside a test at the same time: they share one environment. */
+    @LlmChaosSuite(environment = FakeEnvironment.class)
+    public static class DetectsOverlapA {
+
+        static final AtomicInteger INSIDE = new AtomicInteger();
+
+        @LlmChaosTest(all = true)
+        void runsAlone(ChatDriver chat) throws InterruptedException {
+            assertThat(INSIDE.incrementAndGet()).as("tests running at the same time").isEqualTo(1);
+            Thread.sleep(40);
+            chat.send("Hello");
+            INSIDE.decrementAndGet();
+        }
+    }
+
+    @LlmChaosSuite(environment = FakeEnvironment.class)
+    public static class DetectsOverlapB {
+
+        @LlmChaosTest(all = true)
+        void runsAlone(ChatDriver chat) throws InterruptedException {
+            assertThat(DetectsOverlapA.INSIDE.incrementAndGet()).as("tests running at the same time").isEqualTo(1);
+            Thread.sleep(40);
+            chat.send("Hello");
+            DetectsOverlapA.INSIDE.decrementAndGet();
         }
     }
 

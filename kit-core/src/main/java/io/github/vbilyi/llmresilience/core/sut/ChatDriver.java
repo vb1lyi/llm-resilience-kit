@@ -18,7 +18,7 @@ import org.mockserver.model.LogEventRequestAndResponse;
  *   <li>adds the {@link RunMarker}, so the mock can tell this run's LLM requests from late ones (ADR-007);</li>
  *   <li>waits no longer than the scenario's {@link ChaosScenario#timeBudget() time budget} - a SUT may have no
  *       timeout of its own;</li>
- *   <li>reads back from the mock when the SUT called the LLM.</li>
+ *   <li>reads back from the mock when the SUT called the LLM for that message.</li>
  * </ol>
  * A driver belongs to one test invocation and is not thread-safe.
  */
@@ -31,6 +31,7 @@ public final class ChatDriver {
     private final ChaosScenario scenario;
     private final RunMarker run;
     private final List<ChatResult> results = new ArrayList<>();
+    private int llmCallsOfEarlierMessages;
 
     /**
      * Creates a driver for a scenario that has been armed with the same marker.
@@ -47,7 +48,8 @@ public final class ChatDriver {
 
     /**
      * Sends one message and waits for the reply or for the time budget to run out. Never throws for a SUT that is
-     * slow or failing: that is recorded in the result.
+     * slow, failing or gone: a timeout and any other failure to get a reply are recorded in the result. (A bug in
+     * the environment's {@code chat} method ends up there too, as {@link ChatResult#transportError()}.)
      *
      * @param userMessage what the user types, without a marker
      * @return what was observed
@@ -56,18 +58,26 @@ public final class ChatDriver {
         String marked = run.mark(userMessage);
         Duration timeout = scenario.timeBudget();
 
-        ChatReply reply = null;
+        ChatReply reply = new ChatReply(0, "");
+        boolean timedOut = false;
+        String transportError = "";
         long t0 = System.nanoTime();
         try {
             reply = environment.chat(marked, timeout);
         } catch (ChatTimeoutException e) {
-            // recorded below as timedOut
+            timedOut = true;
+        } catch (RuntimeException e) {
+            transportError = e.toString();
         }
         Duration duration = Duration.ofNanos(System.nanoTime() - t0);
 
-        ChatResult result = reply == null
-                ? new ChatResult(marked, true, 0, "", duration, llmCallTimes())
-                : new ChatResult(marked, false, reply.status(), reply.body(), duration, llmCallTimes());
+        // The mock returns every call of the run; the ones before this message belong to earlier results.
+        List<LocalDateTime> allCalls = llmCallTimes();
+        List<LocalDateTime> calls = allCalls.subList(Math.min(llmCallsOfEarlierMessages, allCalls.size()), allCalls.size());
+        llmCallsOfEarlierMessages = allCalls.size();
+
+        ChatResult result =
+                new ChatResult(marked, timedOut, transportError, reply.status(), reply.body(), duration, calls);
         results.add(result);
         return result;
     }

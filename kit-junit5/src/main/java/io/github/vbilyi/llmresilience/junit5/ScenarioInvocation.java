@@ -42,6 +42,8 @@ final class ScenarioInvocation implements TestTemplateInvocationContext, BeforeE
     private ChatDriver driver;
     private long startedNanos;
     private Duration duration = Duration.ZERO;
+    private boolean testMethodRan;
+    private boolean recorded;
     private Status status = Status.PASSED;
     private String failure = "";
 
@@ -69,15 +71,23 @@ final class ScenarioInvocation implements TestTemplateInvocationContext, BeforeE
 
     @Override
     public void beforeEach(ExtensionContext context) {
-        environment.resetState();
-        run = RunMarker.random();
-        scenario.arm(environment.mockServer(), run);
-        driver = new ChatDriver(environment, scenario, run);
+        try {
+            environment.resetState();
+            run = RunMarker.random();
+            scenario.arm(environment.mockServer(), run);
+            driver = new ChatDriver(environment, scenario, run);
+        } catch (RuntimeException e) {
+            // The scenario must still show up in the run - as failed, not as missing.
+            record(context, Status.FAILED, "Could not reset the environment or arm the scenario: " + e,
+                    Recovery.NOT_PROBED);
+            throw e;
+        }
         startedNanos = System.nanoTime();
     }
 
     @Override
     public void afterTestExecution(ExtensionContext context) {
+        testMethodRan = true;
         duration = Duration.ofNanos(System.nanoTime() - startedNanos);
         Optional<Throwable> thrown = context.getExecutionException();
         if (thrown.isPresent()) {
@@ -88,8 +98,14 @@ final class ScenarioInvocation implements TestTemplateInvocationContext, BeforeE
 
     @Override
     public void afterEach(ExtensionContext context) {
-        if (driver == null) {
-            return; // beforeEach failed: the environment is broken, there is nothing to record
+        if (recorded) {
+            return; // beforeEach above failed and has recorded that
+        }
+        if (!testMethodRan) {
+            // A @BeforeEach method of the test class failed: the scenario was armed but never exercised.
+            String cause = context.getExecutionException().map(Throwable::toString).orElse("unknown reason");
+            record(context, Status.FAILED, "The test method did not run: " + cause, Recovery.NOT_PROBED);
+            return;
         }
         Optional<String> notRecovered = Optional.empty();
         Recovery recovery = Recovery.NOT_PROBED;
@@ -97,13 +113,19 @@ final class ScenarioInvocation implements TestTemplateInvocationContext, BeforeE
             notRecovered = RecoveryProbe.failure(environment);
             recovery = notRecovered.isPresent() ? Recovery.NOT_RECOVERED : Recovery.RECOVERED;
         }
-        String test = context.getRequiredTestClass().getSimpleName() + "." + context.getRequiredTestMethod().getName();
-        recorder.record(new ScenarioOutcome(scenario, test, status, failure, duration, recovery, driver.results()));
+        record(context, status, failure, recovery);
 
         if (notRecovered.isPresent()) {
             throw new AssertionError("The SUT did not recover after " + scenario.id()
                     + ": a normal message afterwards failed - " + notRecovered.get());
         }
+    }
+
+    private void record(ExtensionContext context, Status status, String failure, Recovery recovery) {
+        String test = context.getRequiredTestClass().getSimpleName() + "." + context.getRequiredTestMethod().getName();
+        recorder.record(new ScenarioOutcome(scenario, test, status, failure, duration, recovery,
+                driver == null ? List.of() : driver.results()));
+        recorded = true;
     }
 
     // ---- parameters ----

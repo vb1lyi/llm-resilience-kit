@@ -75,6 +75,12 @@ class LlmChaosExtensionTest {
     }
 
     @Test
+    void allCannotBeCombinedWithIdsOrLayers() {
+        assertThat(failureMessages(run(Fixtures.AllCombinedWithIds.class))).singleElement().asString()
+                .contains("all = true already selects every scenario");
+    }
+
+    @Test
     void aClassWithoutTheSuiteAnnotationFails() {
         assertThat(failureMessages(run(Fixtures.NoSuiteAnnotation.class))).singleElement().asString()
                 .contains("@LlmChaosSuite");
@@ -110,6 +116,21 @@ class LlmChaosExtensionTest {
         assertThat(BrokenEnvironment.ATTEMPTS).hasValue(1);
         assertThat(failureMessages(results)).hasSize(2)
                 .allSatisfy(message -> assertThat(message).contains("Cannot start the environment"));
+    }
+
+    @Test
+    void suiteClassesNeverOverlapEvenWithParallelExecutionSwitchedOn() {
+        List<ClassSelector> both = List.of(selectClass(Fixtures.DetectsOverlapA.class),
+                selectClass(Fixtures.DetectsOverlapB.class));
+
+        EngineExecutionResults results = EngineTestKit.engine("junit-jupiter")
+                .selectors(both)
+                .configurationParameter("junit.jupiter.execution.parallel.enabled", "true")
+                .configurationParameter("junit.jupiter.execution.parallel.mode.default", "concurrent")
+                .configurationParameter("junit.jupiter.execution.parallel.mode.classes.default", "concurrent")
+                .execute();
+
+        results.testEvents().assertStatistics(stats -> stats.started(8).succeeded(8));
     }
 
     // ---- outcomes ----
@@ -150,7 +171,46 @@ class LlmChaosExtensionTest {
                 .satisfies(outcome -> assertThat(outcome.status()).isEqualTo(Status.ABORTED));
     }
 
+    @Test
+    void aTestMethodThatNeverRanIsRecordedAsFailedNotPassed() {
+        run(Fixtures.BeforeEachFails.class);
+
+        assertThat(onlyRun().outcomes()).singleElement().satisfies(outcome -> {
+            assertThat(outcome.status()).isEqualTo(Status.FAILED);
+            assertThat(outcome.failure()).contains("did not run").contains("fixture data missing");
+            assertThat(outcome.recovery()).isEqualTo(Recovery.NOT_PROBED);
+        });
+    }
+
+    @Test
+    void aScenarioThatCouldNotBeArmedIsRecordedAsFailedNotLeftOut() {
+        FakeEnvironment.FAIL_RESET = true;
+
+        run(Fixtures.ResetFails.class);
+
+        assertThat(onlyRun().outcomes()).singleElement().satisfies(outcome -> {
+            assertThat(outcome.scenario().id()).isEqualTo("RATE_LIMIT_429");
+            assertThat(outcome.status()).isEqualTo(Status.FAILED);
+            assertThat(outcome.failure()).contains("cannot reset the database");
+            assertThat(outcome.chats()).isEmpty();
+        });
+    }
+
     // ---- recovery probe ----
+
+    @Test
+    void aSutThatIsGoneIsRecordedWithItsEvidenceAndReportedAsNotRecovered() {
+        EngineExecutionResults results = run(Fixtures.SutDiesDuringScenario.class);
+
+        assertThat(failureMessages(results)).singleElement().asString()
+                .contains("did not recover after RATE_LIMIT_429")
+                .contains("Connection refused");
+        assertThat(onlyRun().outcomes()).singleElement().satisfies(outcome -> {
+            assertThat(outcome.recovery()).isEqualTo(Recovery.NOT_RECOVERED);
+            assertThat(outcome.chats()).singleElement()
+                    .satisfies(chat -> assertThat(chat.transportError()).contains("Connection refused"));
+        });
+    }
 
     @Test
     void chaosScenariosAreProbedForRecoveryAndControlScenariosAreNot() {

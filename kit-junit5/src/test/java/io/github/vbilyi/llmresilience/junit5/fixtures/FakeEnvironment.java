@@ -38,6 +38,9 @@ public class FakeEnvironment implements ChaosEnvironment {
     public static final AtomicInteger CLOSED = new AtomicInteger();
     public static final AtomicInteger RESETS = new AtomicInteger();
 
+    /** Set by a test to make {@link #resetState()} fail, as a broken database connection would. */
+    public static volatile boolean FAIL_RESET;
+
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
     private final ClientAndServer mock = ClientAndServer.startClientAndServer(0);
@@ -51,6 +54,7 @@ public class FakeEnvironment implements ChaosEnvironment {
         STARTED.set(0);
         CLOSED.set(0);
         RESETS.set(0);
+        FAIL_RESET = false;
     }
 
     @Override
@@ -66,6 +70,9 @@ public class FakeEnvironment implements ChaosEnvironment {
     @Override
     public void resetState() {
         RESETS.incrementAndGet();
+        if (FAIL_RESET) {
+            throw new IllegalStateException("cannot reset the database");
+        }
         mock.reset();
     }
 

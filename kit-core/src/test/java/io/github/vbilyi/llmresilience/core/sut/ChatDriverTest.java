@@ -55,6 +55,7 @@ class ChatDriverTest {
         assertThat(sut.received).containsExactly("Hello [" + run.value() + "]");
         assertThat(sut.timeouts).containsExactly(Duration.ofMinutes(1)); // the scenario's time budget
         assertThat(result.userMessage()).isEqualTo("Hello [" + run.value() + "]");
+        assertThat(result.replied()).isTrue();
         assertThat(result.timedOut()).isFalse();
         assertThat(result.status()).isEqualTo(200);
         assertThat(result.body()).isEqualTo("reply after 1 LLM call(s), last status 200");
@@ -90,6 +91,41 @@ class ChatDriverTest {
     }
 
     @Test
+    void eachResultHoldsOnlyTheLlmCallsOfItsOwnMessage() {
+        ScriptedSut sut = new ScriptedSut(2);
+        new HappyPath().arm(mock, run);
+        ChatDriver driver = new ChatDriver(sut, new HappyPath(), run);
+
+        ChatResult first = driver.send("First");
+        ChatResult second = driver.send("Second");
+
+        assertThat(first.llmCalls()).isEqualTo(2);
+        assertThat(second.llmCalls()).isEqualTo(2); // not 4
+        assertThat(second.llmCallTimes()).doesNotContainAnyElementsOf(first.llmCallTimes().subList(0, 1));
+        assertThat(second.gapsBetweenLlmCalls()).hasSize(1);
+    }
+
+    @Test
+    void aSutThatDropsTheConnectionIsRecordedNotThrown() {
+        ScriptedSut sut = new ScriptedSut(1) {
+            @Override
+            public ChatReply chat(String userMessage, Duration timeout) {
+                super.chat(userMessage, timeout);
+                throw new IllegalStateException("Connection reset");
+            }
+        };
+        new HappyPath().arm(mock, run);
+
+        ChatResult result = new ChatDriver(sut, new HappyPath(), run).send("Hello");
+
+        assertThat(result.replied()).isFalse();
+        assertThat(result.timedOut()).isFalse();
+        assertThat(result.transportError()).contains("Connection reset");
+        assertThat(result.status()).isZero();
+        assertThat(result.llmCalls()).isEqualTo(1); // the evidence is still collected
+    }
+
+    @Test
     void aSutThatDoesNotReplyInTimeIsRecordedAsTimedOutNotThrown() {
         ScriptedSut sut = new ScriptedSut(0) {
             @Override
@@ -104,6 +140,7 @@ class ChatDriverTest {
 
         assertThat(sut.timeouts).containsExactly(new TimeoutNoFirstToken().timeBudget());
         assertThat(result.timedOut()).isTrue();
+        assertThat(result.replied()).isFalse();
         assertThat(result.status()).isZero();
         assertThat(result.body()).isEmpty();
         assertThat(driver.results()).containsExactly(result);
