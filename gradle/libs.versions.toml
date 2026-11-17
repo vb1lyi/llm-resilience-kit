@@ -15,6 +15,7 @@ postgresql = "42.7.14"
 junit-bom = { module = "org.junit:junit-bom", version.ref = "junit" }
 junit-jupiter = { module = "org.junit.jupiter:junit-jupiter" }
 junit-jupiter-api = { module = "org.junit.jupiter:junit-jupiter-api" }
+junit-platform-testkit = { module = "org.junit.platform:junit-platform-testkit" }
 assertj-core = { module = "org.assertj:assertj-core", version.ref = "assertj" }
 
 testcontainers-bom = { module = "org.testcontainers:testcontainers-bom", version.ref = "testcontainers" }

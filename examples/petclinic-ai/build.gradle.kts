@@ -32,6 +32,8 @@ val sutImage: String = run {
 
 dependencies {
     api(project(":kit-core"))
+    implementation(platform(libs.jackson.bom))
+    implementation(libs.jackson.databind)
     api(platform(libs.testcontainers.bom))
     api(libs.testcontainers.core)
     api(libs.testcontainers.mockserver)
@@ -89,6 +91,7 @@ testing {
             named<JvmTestSuite>(name) {
                 dependencies {
                     implementation(project())
+                    implementation(project(":kit-junit5"))
                     implementation(libs.rest.assured)
                     runtimeOnly(libs.logback.classic)
                 }

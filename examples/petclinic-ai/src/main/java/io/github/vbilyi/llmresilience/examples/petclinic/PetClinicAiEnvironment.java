@@ -1,5 +1,17 @@
 package io.github.vbilyi.llmresilience.examples.petclinic;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import io.github.vbilyi.llmresilience.core.scenario.ScenarioCatalog;
+import io.github.vbilyi.llmresilience.core.sut.ChaosEnvironment;
+import io.github.vbilyi.llmresilience.core.sut.ChatReply;
+import io.github.vbilyi.llmresilience.core.sut.ChatTimeoutException;
+import java.io.IOException;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.net.http.HttpTimeoutException;
 import java.time.Duration;
 import java.util.Locale;
 import java.util.Map;
@@ -25,11 +37,12 @@ import org.testcontainers.utility.DockerImageName;
  *     └──JDBC (host port)──▶ sut-db
  * </pre>
  *
- * <p><b>Lifecycle.</b> {@link #shared()} starts the environment once per test JVM and every test class re-uses it
- * (startup is ~15–30 s). Containers are stopped by a JVM shutdown hook, and by Testcontainers' Ryuk as a backstop.
- * Nothing is re-used <em>between</em> Gradle runs.
+ * <p><b>Lifecycle.</b> The constructor starts everything (~15–30 s) and returns when the SUT is healthy. Tests do
+ * not call it: {@code @LlmChaosSuite(environment = PetClinicAiEnvironment.class)} makes the kit create one instance
+ * per test JVM, share it between test classes and {@link #close()} it at the end (Testcontainers' Ryuk is the
+ * backstop). Nothing is re-used <em>between</em> Gradle runs.
  *
- * <p><b>State between tests.</b> Call {@link #resetState()} before each test: it clears all MockServer expectations
+ * <p><b>State between tests.</b> {@link #resetState()} runs before each scenario: it clears all MockServer expectations
  * and recorded requests and resets the database to its seed. The SUT's chat memory is global and cannot be reset
  * over HTTP (ADR-006), and the SUT may still be working for the previous test — so each test marks its user
  * message with a {@code RunMarker} and scenarios arm only that run's requests (ADR-007).
@@ -39,7 +52,7 @@ import org.testcontainers.utility.DockerImageName;
  * The SUT is configured only through environment variables (ADR-002) and keeps its shipped retry and timeout
  * defaults (ADR-005).
  */
-public final class PetClinicAiEnvironment {
+public final class PetClinicAiEnvironment implements ChaosEnvironment {
 
     /** Network alias of MockServer; the SUT's OpenAI base URL points here. */
     public static final String LLM_MOCK_ALIAS = "llm-mock";
@@ -65,8 +78,7 @@ public final class PetClinicAiEnvironment {
     /** The real provider's host. Inside the SUT container it resolves to the container itself. */
     private static final String REAL_PROVIDER_HOST = "api.openai.com";
 
-    private static PetClinicAiEnvironment shared;
-    private static RuntimeException startupFailure;
+    private static final ObjectMapper JSON = new ObjectMapper();
 
     private final Network network;
     private final MockServerContainer mock;
@@ -75,8 +87,13 @@ public final class PetClinicAiEnvironment {
     private final MockServerClient mockServerClient;
     private final PetClinicDatabase database;
     private final Duration startupTime;
+    private final HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build();
 
-    private PetClinicAiEnvironment(String sutImage, String dbImage, String mockServerImage) {
+    /** Starts the environment with the images Gradle passes as system properties. */
+    public PetClinicAiEnvironment() {
+        String sutImage = requiredProperty("sut.image");
+        String dbImage = requiredProperty("db.image");
+        String mockServerImage = requiredProperty("mockserver.image");
         requireDummyKey(DUMMY_API_KEY);
         network = Network.newNetwork();
 
@@ -117,29 +134,6 @@ public final class PetClinicAiEnvironment {
     }
 
     /**
-     * Returns the environment for this JVM, starting it on first use. A failed start is remembered and rethrown
-     * to every later caller, so one broken environment does not cost a startup timeout per test class.
-     *
-     * @return the shared, running environment
-     */
-    public static synchronized PetClinicAiEnvironment shared() {
-        if (startupFailure != null) {
-            throw startupFailure;
-        }
-        if (shared == null) {
-            try {
-                shared = new PetClinicAiEnvironment(requiredProperty("sut.image"), requiredProperty("db.image"),
-                        requiredProperty("mockserver.image"));
-            } catch (RuntimeException e) {
-                startupFailure = e;
-                throw e;
-            }
-            Runtime.getRuntime().addShutdownHook(new Thread(shared::stop, "petclinic-env-shutdown"));
-        }
-        return shared;
-    }
-
-    /**
      * Base URL of the running SUT, reachable from the test JVM.
      *
      * @return e.g. {@code http://localhost:49153}
@@ -148,11 +142,7 @@ public final class PetClinicAiEnvironment {
         return "http://" + sut.getHost() + ":" + sut.getMappedPort(SUT_PORT);
     }
 
-    /**
-     * Client for arming and inspecting the LLM mock.
-     *
-     * @return the MockServer client
-     */
+    @Override
     public MockServerClient mockServer() {
         return mockServerClient;
     }
@@ -175,13 +165,47 @@ public final class PetClinicAiEnvironment {
         return startupTime;
     }
 
+    /** The kit's built-in scenarios plus the ones that need PetClinic's tools. */
+    @Override
+    public ScenarioCatalog scenarios() {
+        return PetClinicScenarios.catalog();
+    }
+
     /** Clears MockServer (expectations and recorded requests) and resets the DB to its seed. See ADR-006. */
+    @Override
     public void resetState() {
         mockServerClient.reset();
         database.resetToSeed();
     }
 
-    private void stop() {
+    /**
+     * Sends the message exactly as the chat UI does: {@code POST /chat} with the text as a JSON string literal
+     * (spike Q4). The UI shows the response body whatever the status, so that is what the user sees.
+     */
+    @Override
+    public ChatReply chat(String userMessage, Duration timeout) {
+        try {
+            HttpRequest request = HttpRequest.newBuilder(URI.create(baseUrl() + "/chat"))
+                    .timeout(timeout)
+                    .header("Content-Type", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString(JSON.writeValueAsString(userMessage)))
+                    .build();
+            HttpResponse<String> response = http.send(request, HttpResponse.BodyHandlers.ofString());
+            return new ChatReply(response.statusCode(), response.body());
+        } catch (HttpTimeoutException e) {
+            throw new ChatTimeoutException(timeout, e);
+        } catch (JsonProcessingException e) {
+            throw new IllegalArgumentException("Cannot encode the chat message", e);
+        } catch (IOException e) {
+            throw new IllegalStateException("Cannot reach the SUT at " + baseUrl(), e);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("Interrupted while waiting for the SUT", e);
+        }
+    }
+
+    @Override
+    public void close() {
         sut.stop();
         mock.stop();
         db.stop();
